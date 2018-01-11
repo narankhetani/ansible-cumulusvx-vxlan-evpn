@@ -1,0 +1,63 @@
+{% set a = ansible_host.split('-')[1] %}
+{% set b = ansible_host.split('-')[2] %}
+{% set index = play_hosts.index(inventory_hostname) + 1 %}
+{% set nb_leafs = groups['fabric-leaf'] | length %}
+{% set nb_spines = groups['fabric-spine'] | length %}
+
+frr version 3.1+cl3u2
+frr defaults datacenter
+username cumulus nopassword
+!
+service integrated-vtysh-config
+!
+log syslog informational
+!
+{% if ansible_host in groups['fabric-spine'] %}
+{% for item in range(1,nb_leafs+1) %}
+interface swp{{ item }}
+ ipv6 nd ra-interval 10
+ no ipv6 nd suppress-ra
+!
+{% endfor %}
+{% elif ansible_host in groups['fabric-leaf'] %}
+{% for item in range(1,nb_spines+1) %}
+interface swp{{ item }}
+ ipv6 nd ra-interval 10
+ no ipv6 nd suppress-ra
+!
+{% endfor %}
+{% endif %}
+router bgp {% if ansible_host in groups['fabric-spine'] %}65000{% else %}{{ 65000+index-nb_spines }}{% endif %} 
+ bgp router-id {% if ansible_host in groups['fabric-spine'] %}10.{{ b }}.0.1{% elif ansible_host in groups['fabric-leaf'] %}10.0.{{ a }}.{{ b }}{% endif %} 
+ bgp bestpath as-path multipath-relax
+ bgp bestpath compare-routerid
+ neighbor fabric peer-group
+ neighbor fabric remote-as external
+ neighbor fabric description Internal Fabric Network
+ neighbor fabric capability extended-nexthop
+{% if ansible_host in groups['fabric-spine'] %}
+{% for item in range(1,nb_leafs+1) %}
+ neighbor swp{{ item }} interface peer-group fabric
+{% endfor %}
+{% elif ansible_host in groups['fabric-leaf'] %}
+{% for item in range(1,nb_spines+1) %}
+ neighbor swp{{ item }} interface peer-group fabric
+{% endfor %}
+{% endif %}
+ !
+ address-family ipv4 unicast
+{% if ansible_host in groups['fabric-spine'] %}
+  network 10.{{ b }}.0.1/32
+{% elif ansible_host in groups['fabric-leaf'] %}
+  network 10.0.{{ a }}.{{ b }}/32
+  network 10.0.0.{{ a }}/32
+{% endif %}
+ exit-address-family
+ !
+ address-family l2vpn evpn
+  neighbor fabric activate
+  advertise-all-vni
+ exit-address-family
+!
+line vty
+!

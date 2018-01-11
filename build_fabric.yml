@@ -1,0 +1,11 @@
+---
+- hosts: all
+  remote_user: cumulus
+  become: yes
+  become_method: sudo
+  vars:
+    ansible_become_pass: "CumulusLinux!"
+    nbVlans: 200
+    nbBonds: 4
+  roles:
+    - networking

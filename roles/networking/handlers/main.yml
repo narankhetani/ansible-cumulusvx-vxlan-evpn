@@ -1,0 +1,5 @@
+- name: ifreload
+  command: ifreload -a
+
+- name: frr
+  command: systemctl restart frr

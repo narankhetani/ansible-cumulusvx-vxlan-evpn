@@ -1,0 +1,24 @@
+- name: Configure Hostname
+  nclu:
+    commands: add hostname {{ ansible_host }}
+    commit: true
+
+- name: Configure Networking on Leaves (Layer 1+2)
+  template: src=../templates/leaf.j2 dest=/etc/network/interfaces
+  when: "'fabric-leaf' in group_names"
+  notify: ifreload
+
+- name: Configure Networking on Spine (Layer 1+2)
+  template: src=../templates/spine.j2 dest=/etc/network/interfaces
+  when: "'fabric-spine' in group_names"
+  notify: ifreload
+
+- name: Activate BGP in FFR daemons
+  template: src=../templates/frr_daemons.j2 dest=/etc/frr/daemons
+  notify: frr
+
+- name: Configure L3 Routing with eBGP unnumbered in the fabric
+  template: src=../templates/frr_config.j2 dest=/etc/frr/frr.conf
+  notify:
+  - ifreload
+  - frr

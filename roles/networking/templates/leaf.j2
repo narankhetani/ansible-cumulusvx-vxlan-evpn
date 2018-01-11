@@ -1,0 +1,91 @@
+{% set a = ansible_host.split('-')[1] | int %}
+{% set b = ansible_host.split('-')[2] | int %}
+{% set index = play_hosts.index(inventory_hostname) | int + 1 %}
+{% set nb_spines = groups['fabric-spine'] | length %}
+
+# This file describes the network interfaces available on your system
+# and how to activate them. For more information, see interfaces(5).
+#source /etc/network/interfaces.d/*.intf
+
+# The loopback network interface
+auto lo
+iface lo inet loopback
+    address 10.0.{{ a }}.{{ b }}/32
+    clagd-vxlan-anycast-ip 10.0.0.{{ a }}
+
+# The primary network interface
+auto eth0
+iface eth0
+    address 192.168.{{ index // 254 }}.{{ index % 254 }}/16
+
+{% for item in range(1,nb_spines + 1) %}
+auto swp{{ item }}
+iface swp{{ item }}
+
+{% endfor %}
+auto bridge
+iface bridge
+    bridge-ports peerlink {% for item in range(0,nbBonds) %}bond{{ item }} {% endfor %}{% for item in range(2,nbVlans+2) %}vxlan{{ 10000+item }} {% endfor %} 
+    bridge-vids {% for item in range(2,nbVlans+2) %}{{ item }} {% endfor %} 
+    bridge-vlan-aware yes
+
+auto peerlink
+iface peerlink
+    bond-slaves swp15 swp16
+
+auto peerlink.4094
+iface peerlink.4094
+{% if b | int is divisibleby 2 %}{% set backup =  index - 1 %}
+    address 169.254.255.2/30
+    clagd-peer-ip 169.254.255.1
+    clagd-sys-mac 44:38:39:ff:00:{{ '%0.2x' % a }} 
+    clagd-backup-ip 192.168.{{ backup // 254 }}.{{ backup % 254 }}
+
+{% else %}{% set backup = index + 1 %}
+    address 169.254.255.1/30
+    clagd-peer-ip 169.254.255.2
+    clagd-sys-mac 44:38:39:ff:00:{{ '%0.2x' % a }} 
+    clagd-backup-ip 192.168.{{ backup // 254 }}.{{ backup % 254 }}
+
+{% endif %}
+{% for item in range(0,nbBonds) %}
+auto bond{{ item }}
+iface bond{{ item }}
+    bond-slaves swp{{ nb_spines+1+item }}
+    clag-id {{ item+1 }}
+    mstpctl-bpduguard yes
+    mstpctl-portadminedge yes
+
+{% endfor %}
+{% if b | int is divisibleby 2 %}
+{% for item in range(2,nbVlans+2) %}
+auto vlan{{ item }}
+iface vlan{{ item }}
+    address 100.{{ item }}.0.3/24
+    address-virtual 00:00:5e:00:01:{{ '%0.2x' % item }} 100.{{ item }}.0.1/24
+    vlan-id {{ item }}
+    vlan-raw-device bridge
+
+{% endfor %}
+{% else %}
+{% for item in range(2,nbVlans+2) %}
+auto vlan{{ item }}
+iface vlan{{ item }}
+    address 100.{{ item }}.0.2/24
+    address-virtual 00:00:5e:00:01:{{ '%0.2x' % item }} 100.{{ item }}.0.1/24
+    vlan-id {{ item }}
+    vlan-raw-device bridge
+
+{% endfor %}
+{% endif %}
+{% for item in range(2,nbVlans+2) %}
+auto vxlan{{ 10000+item }}
+iface vxlan{{ 10000+item }}
+    bridge-access {{ item }}
+    bridge-learning off
+    mstpctl-bpduguard yes
+    mstpctl-portbpdufilter yes
+    vxlan-id {{ 10000+item }}
+    vxlan-local-tunnelip 10.0.0.{{ a }}
+
+{% endfor %}
